@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Waste Sorter ft. Amazon Bedrock</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+        .card-shadow { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .chat-bubble { max-width: 80%; padding: 10px 15px; border-radius: 20px; word-wrap: break-word; }
+        .user-bubble { background-color: #3b82f6; color: white; align-self: flex-end; }
+        .ai-bubble { background-color: #e5e7eb; color: #1f2937; align-self: flex-start; }
+        #camera-feed { transform: scaleX(-1); } /* Mirror the camera feed */
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-lg mx-auto bg-white rounded-2xl card-shadow overflow-hidden">
+        <div class="p-8">
+            <header class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-gray-800">Smart Waste Sorter</h1>
+                <p id="subtitle" class="text-gray-500 mt-2">Enhanced with <span class="font-bold text-yellow-500">Amazon Bedrock</span></p>
+            </header>
+
+            <main>
+                <!-- This container holds all the different views -->
+                <div id="view-container">
+
+                    <!-- Initial Choice View -->
+                    <div id="choice-view">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <button id="use-camera-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">📷 Use Live Camera</button>
+                            <label for="file-upload" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors text-center cursor-pointer">
+                                ⬆️ Upload an Image
+                                <input id="file-upload" name="file" type="file" class="hidden" accept="image/*">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Camera View -->
+                    <div id="camera-view" class="hidden">
+                        <div class="relative w-full mx-auto mb-4 rounded-xl overflow-hidden border-2 border-gray-200 bg-black">
+                             <video id="camera-feed" class="w-full h-auto" autoplay playsinline></video>
+                             <canvas id="camera-canvas" class="hidden"></canvas>
+                        </div>
+                        <button id="capture-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg">Capture & Classify</button>
+                         <button onclick="resetApp()" class="mt-2 w-full text-gray-600 hover:text-black">Cancel</button>
+                    </div>
+
+                    <!-- Result View -->
+                    <div id="result-view" class="hidden text-center">
+                        <img id="image-preview" src="" class="w-48 h-48 mx-auto mb-4 rounded-xl object-cover border-2 border-gray-200">
+                        <p class="text-sm text-gray-500">Roboflow detected:</p>
+                        <h2 id="result-text" class="text-3xl font-bold text-blue-600 my-2 capitalize"></h2>
+                        
+                        <!-- Disposal Tips Section -->
+                        <div id="disposal-info" class="mt-4 bg-gray-100 p-4 rounded-lg text-left text-sm text-gray-700">
+                            <!-- Disposal info will be injected here -->
+                        </div>
+
+                        <div id="chat-container" class="mt-6">
+                            <div id="chat-box" class="h-64 overflow-y-auto border rounded-lg p-4 flex flex-col space-y-4"></div>
+                            <div class="mt-4 flex">
+                                <input type="text" id="chat-input" class="flex-grow border rounded-l-lg p-2" placeholder="Ask Bedrock a question...">
+                                <button id="send-chat-btn" class="bg-blue-600 text-white font-bold px-4 rounded-r-lg">Send</button>
+                            </div>
+                        </div>
+                        <button id="reset-button" class="mt-6 w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">Start Over</button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+<script>
+    // --- Element Selectors ---
+    const choiceView = document.getElementById('choice-view');
+    const cameraView = document.getElementById('camera-view');
+    const resultView = document.getElementById('result-view');
+    const fileUploadInput = document.getElementById('file-upload');
+    const imagePreview = document.getElementById('image-preview');
+    const resultText = document.getElementById('result-text');
+    const disposalInfo = document.getElementById('disposal-info');
+    const resetButton = document.getElementById('reset-button');
+    const chatBox = document.getElementById('chat-box');
+    const chatInput = document.getElementById('chat-input');
+    const sendChatBtn = document.getElementById('send-chat-btn');
+    const useCameraBtn = document.getElementById('use-camera-btn');
+    const captureBtn = document.getElementById('capture-btn');
+    const cameraFeed = document.getElementById('camera-feed');
+    const cameraCanvas = document.getElementById('camera-canvas');
+    
+    let currentSessionId = null;
+    let cameraStream = null;
+
+    // --- Disposal Instructions Data (Expanded for all 42 classes) ---
+    const disposalInstructions = {
+        'paper': { info: '<strong>Disposal:</strong> Place in the paper recycling bin.<br><strong>Note:</strong> Avoid wet or food-soiled paper. Shredded paper should be bagged.' },
+        'paper bag': { info: '<strong>Disposal:</strong> Can be recycled with other paper products. Can also be composted if not glossy.<br><strong>Note:</strong> Remove any plastic or metal handles.' },
+        'paper cups': { info: '<strong>Disposal:</strong> Most paper cups have a plastic lining and are NOT recyclable with paper. Place in general trash unless your local facility specifically accepts them.' },
+        'paper shavings': { info: '<strong>Disposal:</strong> Bagged shredded paper can be recycled. Loose shavings can be composted.<br><strong>Note:</strong> Helps prevent it from blowing away at recycling facilities.' },
+        'postal packaging': { info: '<strong>Disposal:</strong> Cardboard boxes should be flattened and recycled. Padded envelopes with plastic bubbles go in general trash.' },
+        'cellulose': { info: '<strong>Disposal:</strong> Natural cellulose (like from plants) is compostable. Cellulose-based plastics may require industrial composting.' },
+        'printing industry': { info: '<strong>Disposal:</strong> Paper off-cuts and misprints are recyclable with paper.<br><strong>Note:</strong> Ink cartridges are e-waste and require special disposal.' },
+        'papier mache': { info: '<strong>Disposal:</strong> Can be composted if made only with paper and natural glue (flour/water). If painted, it should go in general trash.' },
+        'cardboard': { info: '<strong>Disposal:</strong> Flatten the box and place it in the paper or cardboard recycling bin.<br><strong>Note:</strong> Remove any plastic tape. Greasy or food-soiled cardboard (like pizza boxes) should go into general trash.' },
+        'tetra pak': { info: '<strong>Disposal:</strong> These are composite containers. Check if your local facility has a specific carton recycling program. Otherwise, place in general trash.' },
+        'plastic bag': { info: '<strong>Disposal:</strong> Do NOT put in your household recycling bin as it jams machinery. Take it to a special plastic bag drop-off point, often at supermarkets.' },
+        'plastic bottle': { info: '<strong>Disposal:</strong> Empty and rinse the bottle. It is often recommended to replace the cap. Place in the plastics recycling bin.' },
+        'plastic can': { info: '<strong>Disposal:</strong> Check the recycling number on the can. If accepted by your local program, rinse and recycle.' },
+        'plastic canister': { info: '<strong>Disposal:</strong> Often made from HDPE (No. 2) plastic. Rinse and check if your local program accepts it.' },
+        'plastic caps': { info: '<strong>Disposal:</strong> Small items like caps can fall through recycling machinery. It is often best to screw them back onto the empty bottle before recycling.' },
+        'plastic cup': { info: '<strong>Disposal:</strong> Check the recycling number. Many disposable cups are not recyclable. Reusable is best!' },
+        'plastic shaker': { info: '<strong>Disposal:</strong> Typically made from recyclable plastics like PP (No. 5). Check with your local facility.' },
+        'plastic shavings': { info: '<strong>Disposal:</strong> These are too small to be sorted. Place in general trash.' },
+        'plastic toys': { info: '<strong>Disposal:</strong> Not recyclable in household bins. Donate if in good condition, otherwise place in general trash.' },
+        'stretch film': { info: '<strong>Disposal:</strong> Like plastic bags, this should be taken to special drop-off locations, not put in household recycling.' },
+        'unknown plastic': { info: '<strong>Disposal:</strong> If you cannot identify the plastic type or find a recycling symbol, it is safest to place it in general trash to avoid contamination.' },
+        'zip plastic bag': { info: '<strong>Disposal:</strong> Treat like other plastic bags. Take to a supermarket drop-off point for recycling.' },
+        'milk bottle': { info: '<strong>Disposal:</strong> Typically made from HDPE (No. 2) plastic. Rinse thoroughly and recycle.' },
+        'disposable tableware': { info: '<strong>Disposal:</strong> Most plastic cutlery and plates are not recyclable. Place in general trash.' },
+        'combined plastic': { info: '<strong>Disposal:</strong> Items made of multiple types of plastic are generally not recyclable. Place in general trash.' },
+        'aluminum can': { info: '<strong>Disposal:</strong> Rinse and place in the metal recycling bin. Aluminum is highly valuable and can be recycled infinitely.' },
+        'aluminum caps': { info: '<strong>Disposal:</strong> Collect them in an aluminum can and crimp the top closed before recycling the can. This prevents them from getting lost.' },
+        'foil': { info: '<strong>Disposal:</strong> Clean aluminum foil can be recycled. Bunch it up into a ball at least 2 inches in diameter.' },
+        'iron utensils': { info: '<strong>Disposal:</strong> Donate if usable. If not, take to a scrap metal recycler.' },
+        'metal shavings': { info: '<strong>Disposal:</strong> Contain and take to a scrap metal recycler. Do not put in household bins.' },
+        'scrap metal': { info: '<strong>Disposal:</strong> Should be taken to a dedicated scrap metal recycling facility.' },
+        'tin': { info: '<strong>Disposal:</strong> Tin cans (actually steel) are recyclable. Rinse and place in the metal recycling bin.' },
+        'glass bottle': { info: '<strong>Disposal:</strong> Rinse the bottle and remove the cap. Place in the glass recycling bin.' },
+        'organic': { info: '<strong>Disposal:</strong> Place in a compost bin or a dedicated green waste container.' },
+        'wood': { info: '<strong>Disposal:</strong> Untreated wood can be composted or taken to a green waste facility. Treated or painted wood is general trash.' },
+        'electronics': { info: '<strong>Disposal:</strong> Do NOT place in regular trash. E-waste must be taken to a dedicated electronic waste collection point.' },
+        'aerosols': { info: '<strong>Disposal:</strong> Ensure the can is completely empty, then it can often be recycled with other metals. Do not pierce or flatten.' },
+        'container for household chemicals': { info: '<strong>Disposal:</strong> This is hazardous waste. Do not place in regular trash. Take to a special hazardous waste disposal facility.' },
+        'liquid': { info: '<strong>Disposal:</strong> This is hazardous waste. Do not pour down the drain. Take to a special hazardous waste disposal facility.' },
+        'textile': { info: '<strong>Disposal:</strong> Clean textiles can be donated to charity or dropped at a textile recycling bank.' },
+        'ceramic': { info: '<strong>Disposal:</strong> Not recyclable. Broken ceramics should be safely wrapped and placed in general trash.' },
+        'furniture': { info: '<strong>Disposal:</strong> Donate if usable. Otherwise, check with your local council for bulk waste collection.' },
+        'trash': { info: '<strong>Disposal:</strong> This item is likely not recyclable. Please place it in the general waste bin.'}
+    };
+
+    // --- Event Listeners ---
+    useCameraBtn.addEventListener('click', startCamera);
+    captureBtn.addEventListener('click', captureAndClassify);
+    fileUploadInput.addEventListener('change', handleUpload);
+    resetButton.addEventListener('click', resetApp);
+    sendChatBtn.addEventListener('click', sendChatMessage);
+    chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
+    // --- UI Control Functions ---
+    function showView(viewToShow) {
+        [choiceView, cameraView, resultView].forEach(view => {
+            view.classList.add('hidden');
+        });
+        viewToShow.classList.remove('hidden');
+    }
+
+    async function startCamera() {
+        showView(cameraView);
+        try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            cameraFeed.srcObject = cameraStream;
+        } catch (error) {
+            alert("Could not access camera. Please ensure you have given permission.");
+            resetApp();
+        }
+    }
+
+    function stopCamera() {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }
+    }
+
+    function resetApp() {
+        stopCamera();
+        fileUploadInput.value = ""; 
+        currentSessionId = null;
+        showView(choiceView);
+    }
+
+    // --- Core Logic ---
+    async function handleUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        processImage(formData);
+    }
+    
+    function captureAndClassify() {
+        cameraCanvas.width = cameraFeed.videoWidth;
+        cameraCanvas.height = cameraFeed.videoHeight;
+        const context = cameraCanvas.getContext('2d');
+        context.translate(cameraCanvas.width, 0);
+        context.scale(-1, 1);
+        context.drawImage(cameraFeed, 0, 0, cameraCanvas.width, cameraCanvas.height);
+        stopCamera();
+        cameraCanvas.toBlob(blob => {
+            const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+            const formData = new FormData();
+            formData.append('file', file);
+            processImage(formData);
+        }, 'image/jpeg');
+    }
+
+    async function processImage(formData) {
+        const file = formData.get('file');
+        if (!file || file.size === 0) return;
+
+        imagePreview.src = URL.createObjectURL(file);
+        showView(resultView);
+        resultText.textContent = "Analyzing...";
+        disposalInfo.innerHTML = "";
+        chatBox.innerHTML = '';
+        addMessageToChat('Contacting AI...', 'ai');
+
+        try {
+            const response = await fetch('/predict', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(`Server returned an error.`);
+            const data = await response.json();
+            
+            if (data.success) {
+                currentSessionId = data.session_id;
+                chatBox.innerHTML = ''; // Clear "Analyzing..."
+                
+                const specificPrediction = data.prediction.toLowerCase();
+                resultText.textContent = specificPrediction;
+                
+                const instructions = disposalInstructions[specificPrediction] || disposalInstructions['trash'];
+                disposalInfo.innerHTML = instructions.info;
+
+                addMessageToChat(data.bedrock_intro, 'ai');
+            } else {
+                throw new Error(data.message || data.error);
+            }
+        } catch (error) {
+            resultText.textContent = "Detection Failed";
+            disposalInfo.innerHTML = "Could not get disposal information.";
+            addMessageToChat(error.message, 'ai');
+        }
+    }
+
+    async function sendChatMessage() {
+        const question = chatInput.value.trim();
+        if (!question || !currentSessionId) return;
+
+        addMessageToChat(question, 'user');
+        chatInput.value = '';
+        chatInput.disabled = true;
+        sendChatBtn.disabled = true;
+        addMessageToChat('Thinking...', 'ai');
+
+        try {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSessionId, question: question })
+            });
+            if (!response.ok) throw new Error(`Server returned an error.`);
+            const data = await response.json();
+
+            chatBox.removeChild(chatBox.lastChild); 
+            if(data.success) {
+                addMessageToChat(data.answer, 'ai');
+            } else {
+                throw new Error(data.message || data.error);
+            }
+        } catch(error) {
+            chatBox.removeChild(chatBox.lastChild);
+            addMessageToChat(`Sorry, there was an error: ${error.message}`, 'ai');
+        } finally {
+            chatInput.disabled = false;
+            sendChatBtn.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    function addMessageToChat(message, sender) {
+        const bubble = document.createElement('div');
+        bubble.classList.add('chat-bubble', sender === 'user' ? 'user-bubble' : 'ai-bubble');
+        bubble.textContent = message;
+        chatBox.appendChild(bubble);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+</script>
+</body>
+</html>
+
