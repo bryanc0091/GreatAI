@@ -1,4 +1,4 @@
-#♻️ Smart Waste Sorter ft. Amazon Bedrock
+# ♻️ Smart Waste Sorter ft. Amazon Bedrock
 
 An AI-powered waste sorting assistant that helps users correctly identify and dispose of waste items.
 This project combines Roboflow YOLO for real-time object detection and Amazon Bedrock for intelligent conversational insights.
