@@ -53,10 +53,12 @@ cd smart-waste-sorter
 
 For Windows:
 py -3.10 -m venv venv
+
 .\venv\Scripts\activate
 
 For Mac/Linux:
 python3.10 -m venv venv
+
 source venv/bin/activate
 
 3. Install dependencies
