@@ -40,20 +40,20 @@ Bedrock model access for Nova Pro in us-east-1 (N. Virginia) region.
 
 Clone the repository and set up dependencies:
 
-# Clone repo
+1. Clone repo
 git clone https://github.com/your-username/smart-waste-sorter.git
 cd smart-waste-sorter
 
-# Create virtual environment
-# Windows
+2. Create virtual environment
+For Windows:
 py -3.10 -m venv venv
 .\venv\Scripts\activate
 
-# Mac/Linux
+For Mac/Linux:
 python3.10 -m venv venv
 source venv/bin/activate
 
-# Install dependencies
+3. Install dependencies
 pip install -r requirements.txt
 
 3️⃣ Configure AWS
@@ -77,7 +77,7 @@ python app.py
 Open in browser:
 👉 http://127.0.0.1:5000
 
-🌱 Future Improvements
+# 🌱 Future Improvements
 
 ✅ Mobile-friendly responsive design
 
@@ -87,15 +87,11 @@ Open in browser:
 
 ✅ Cloud deployment (AWS Elastic Beanstalk / Docker)
 
-🤝 Contributing
-
-Contributions are welcome! Please fork this repo and submit a pull request.
-
-📜 License
+# 📜 License
 
 MIT License – feel free to use, modify, and distribute.
 
-🧠 Acknowledgments
+# 🧠 Acknowledgments
 
 Roboflow
  – YOLO waste dataset & model training
